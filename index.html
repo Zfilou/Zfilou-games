@@ -15,8 +15,8 @@
     .col{flex:1;min-width:320px}
     .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
     input[type=file]{display:none}
-    .btn{background:transparent;border:1px solid rgba(255,255,255,.06);padding:8px 12px;border-radius:8px;cursor:pointer;color:white;transition:all .2s ease;}
-    .btn:hover{background:var(--bg);transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,0.4);color:white;}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,.06);padding:8px 12px;border-radius:8px;cursor:pointer;color:white;transition:all .2s ease}
+    .btn:hover{background:var(--bg);transform:scale(1.08);box-shadow:0 4px 12px rgba(0,0,0,0.4);color:white}
     .textarea{width:100%;height:70vh;padding:12px;background:#05060a;border-radius:8px;border:1px solid rgba(255,255,255,.03);color:#cfe9ff;resize:none;font-family:monospace;white-space:pre;overflow:auto;display:block}
     .small{font-size:13px;color:var(--muted)}
     label.select{display:inline-block;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.03);cursor:default}
@@ -24,9 +24,9 @@
     .preview{background:#020306;padding:8px;border-radius:8px;display:flex;align-items:center;justify-content:center;max-height:300px;overflow:hidden}
     canvas{max-width:100%;height:auto}
     .range{width:160px}
-    select{padding:6px;border-radius:6px;background:#1a1a1a;color:#ffffff;border:1px solid rgba(255,255,255,.1);transition:all .2s ease;}
-    select:hover{background:#0b0b0f;transform:scale(1.05);box-shadow:0 2px 10px rgba(0,0,0,0.4);color:#fff;}
-    option{background:#1a1a1a;color:#ffffff;}
+    select{padding:6px;border-radius:6px;background:#1a1a1a;color:#ffffff;border:1px solid rgba(255,255,255,.1);transition:all .2s ease}
+    select:hover{background:#0b0b0f;transform:scale(1.05);box-shadow:0 2px 10px rgba(0,0,0,0.4);color:#fff}
+    option{background:#1a1a1a;color:#ffffff}
     @media(max-width:768px){.textarea{height:50vh}}
   </style>
 </head>
@@ -73,8 +73,8 @@
 
       <div class="col">
         <div class="small">Résultat ASCII (ajusté automatiquement à la taille de la fenêtre)</div>
-        <div style="overflow:auto;max-height:70vh;width:100%;border-radius:8px;background:#05060a;border:1px solid rgba(255,255,255,.03)">
-          <pre id="output" class="textarea" style="overflow:auto;white-space:pre-wrap"></pre>
+        <div id="outWrapper" style="overflow:hidden;max-height:70vh;width:100%;border-radius:8px;background:#05060a;border:1px solid rgba(255,255,255,.03);padding:6px;">
+          <pre id="output" class="textarea"></pre>
         </div>
       </div>
     </div>
@@ -85,8 +85,9 @@
   <script>
     const $ = id => document.getElementById(id);
     const file = $('file'), canvas = $('canvas'), ctx = canvas.getContext('2d');
-    const output = $('output'), convertBtn = $('convertBtn'), downloadBtn = $('downloadBtn');
+    const output = $('output'), outWrapper = $('outWrapper'), convertBtn = $('convertBtn'), downloadBtn = $('downloadBtn');
     let img = new Image();
+    let lastTargetH = 0;
 
     const dropBtn = $('dropBtn');
     dropBtn.addEventListener('click', ()=> alert('Dépose une image directement sur la page.'));
@@ -116,6 +117,51 @@
       ctx.drawImage(img,0,0,w,h);
     }
 
+    // mesure un caractère monospace à 10px pour obtenir taille de référence
+    function measureCharSize(){
+      const span = document.createElement('span');
+      span.style.fontFamily = 'monospace';
+      span.style.fontSize = '10px';
+      span.style.lineHeight = '1';
+      span.style.visibility = 'hidden';
+      span.style.position = 'absolute';
+      span.textContent = '0';
+      document.body.appendChild(span);
+      const rect = span.getBoundingClientRect();
+      const w = rect.width || span.offsetWidth;
+      const h = rect.height || span.offsetHeight;
+      span.remove();
+      return {w, h};
+    }
+
+    function fitFontToContainer(charWidth, rows){
+      if(!charWidth || !rows) return;
+      // dimensions disponibles
+      const style = getComputedStyle(outWrapper);
+      const padX = parseFloat(style.paddingLeft || 6) + parseFloat(style.paddingRight || 6);
+      const padY = parseFloat(style.paddingTop || 6) + parseFloat(style.paddingBottom || 6);
+      let cw = outWrapper.clientWidth - padX;
+      let ch = outWrapper.clientHeight - padY;
+      if(cw <= 0) cw = window.innerWidth * 0.5;
+      if(ch <= 0) ch = window.innerHeight * 0.5;
+
+      const ref = measureCharSize(); // size at 10px
+      const w10 = ref.w, h10 = ref.h;
+      // calc font size limited by width
+      const fontByWidth = (cw * 10) / (charWidth * (w10 || 1));
+      // calc font size limited by height (on rows)
+      const lineGap = 1.02; // small line spacing buffer
+      const fontByHeight = (ch * 10) / (rows * (h10 || 1) * lineGap);
+
+      let desired = Math.floor(Math.min(fontByWidth, fontByHeight, 28));
+      if(desired < 6) desired = 6; // limite basse pour rester lisible
+
+      output.style.fontSize = desired + 'px';
+      output.style.lineHeight = '1';
+      output.style.whiteSpace = 'pre';
+      output.style.overflow = 'auto';
+    }
+
     function convert(){
       if(!img.src){ alert('Aucune image chargée.'); return; }
       const charWidth = parseInt($('width').value,10);
@@ -125,7 +171,9 @@
 
       const ratio = img.width / img.height;
       const targetW = charWidth;
-      const targetH = Math.round(charWidth / ratio / 2);
+      const targetH = Math.max(2, Math.round(charWidth / ratio / 2));
+      lastTargetH = targetH;
+
       const tmp = document.createElement('canvas');
       tmp.width = targetW; tmp.height = targetH;
       const tctx = tmp.getContext('2d');
@@ -136,7 +184,7 @@
       for(let y=0;y<targetH;y++){
         for(let x=0;x<targetW;x++){
           const i = (y*targetW + x)*4;
-          let r = data[i], g = data[i+1], b = data[i+2];
+          const r = data[i], g = data[i+1], b = data[i+2];
           let lum = 0.2126*r + 0.7152*g + 0.0722*b;
           if(invert) lum = 255 - lum;
           const t = lum/255;
@@ -148,10 +196,18 @@
       }
 
       output.textContent = out;
+      // ajuste la taille de police pour faire tenir l'ASCII dans le conteneur (largeur + hauteur)
+      fitFontToContainer(targetW, targetH);
       drawPreview();
     }
 
     convertBtn.addEventListener('click', convert);
+
+    // ré-ajuste au redimensionnement de la fenêtre
+    window.addEventListener('resize', ()=>{ if(output.textContent) fitFontToContainer(parseInt($('width').value,10), lastTargetH); });
+
+    // repositionnement si on change la largeur sans reconvertir (optionnel)
+    $('width').addEventListener('input', ()=>{ if(output.textContent) fitFontToContainer(parseInt($('width').value,10), lastTargetH); });
 
     downloadBtn.addEventListener('click', ()=>{
       const text = output.textContent;
