@@ -1,20 +1,174 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zfilou Games</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Image → ASCII</title>
+  <style>
+    :root{--bg:#0b0b0f;--card:#0f1115;--muted:#9aa0a6;--accent:#7dd3fc}
+    *{box-sizing:border-box;font-family:Inter,system-ui,Segoe UI,Arial}
+    body{margin:0;background:linear-gradient(180deg,#071021 0%,#07121a 100%);color:#e6eef6;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:28px}
+    .card{background:var(--card);padding:20px;border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,.6);width:100%;max-width:980px}
+    h1{margin:0 0 8px;font-size:20px}
+    p.lead{margin:0 0 18px;color:var(--muted)}
+    .row{display:flex;gap:16px}
+    .col{flex:1}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    input[type=file]{display:none}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,.06);padding:8px 12px;border-radius:8px;cursor:pointer}
+    .textarea{width:100%;height:420px;padding:12px;background:#05060a;border-radius:8px;border:1px solid rgba(255,255,255,.03);color:#cfe9ff;resize:vertical;font-family:monospace;white-space:pre;overflow:auto}
+    .small{font-size:13px;color:var(--muted)}
+    label.select{display:inline-block;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.03);cursor:default}
+    footer{margin-top:12px;color:var(--muted);font-size:13px}
+    .preview{background:#020306;padding:8px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+    canvas{max-width:100%;height:auto}
+    .range{width:160px}
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Welcome to Zfilou Games</h1>
-        <div class="buttons">
-            <button id="playNow">Play Now</button>
-            <button id="topGames">Top Games</button>
-            <button id="aboutUs">About Us</button>
+  <div class="card">
+    <h1>Convertisseur d'image → ASCII</h1>
+    <p class="lead">Glisse-dépose une image ou clique sur "Choisir". Conversion entièrement en JavaScript côté client (aucun envoi serveur).</p>
+
+    <div class="row">
+      <div class="col" style="max-width:420px">
+        <div class="controls">
+          <label class="btn" id="pickBtn">Choisir une image<input id="file" type="file" accept="image/*"></label>
+          <button class="btn" id="dropBtn">Glisser-déposer</button>
+          <button class="btn" id="convertBtn">Convertir</button>
+          <button class="btn" id="downloadBtn">Télécharger .txt</button>
         </div>
+
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <div>
+            <div class="small">Largeur (caractères)</div>
+            <input id="width" class="range" type="range" min="40" max="220" value="100">
+          </div>
+          <div style="min-width:120px">
+            <div class="small">Jeu de caractères</div>
+            <select id="charset" style="padding:6px;border-radius:6px;background:transparent;color:inherit">
+              <option value="@%#*+=-:. ">Dense → Clair (@%#*...)</option>
+              <option value="$@B%8&WM#*oahkbdpqwmZ0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,\"^`'. ">$@B%8... (photographique)</option>
+              <option value="@#S%?*+;:,. ">Simple</option>
+              <option value=" .:-=+*#%@">Inverse</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+          <label class="small">Inverser luminance <input type="checkbox" id="invert"></label>
+          <label class="small">Niveaux de gris <input type="checkbox" id="grayscale" checked></label>
+        </div>
+
+        <div class="preview" style="height:220px">
+          <canvas id="canvas" width="400" height="200" style="display:block"></canvas>
+        </div>
+
+      </div>
+
+      <div class="col">
+        <div class="small">Résultat ASCII (copier-coller ou télécharger)</div>
+        <textarea id="output" class="textarea" placeholder="Aucun résultat..."></textarea>
+      </div>
     </div>
-    <script src="script.js"></script>
+
+    <footer>Fonctionne entièrement côté client. Idéal pour créations, signatures, ou affichage rétro.</footer>
+  </div>
+
+  <script>
+    // Utilitaire: map value
+    const $ = id => document.getElementById(id);
+    const file = $('file'), canvas = $('canvas'), ctx = canvas.getContext('2d');
+    const output = $('output'), convertBtn = $('convertBtn'), downloadBtn = $('downloadBtn');
+    let img = new Image();
+
+    // Drag & drop handler
+    const dropBtn = $('dropBtn');
+    dropBtn.addEventListener('click', ()=> alert('Dépose une image directement sur la page.')); // hint
+    document.addEventListener('dragover', e=>e.preventDefault());
+    document.addEventListener('drop', e=>{
+      e.preventDefault();
+      const f = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) loadFile(f);
+    });
+
+    $('pickBtn').addEventListener('click', ()=>{}); // cosmetic
+    file.addEventListener('change', e=>{ if(e.target.files[0]) loadFile(e.target.files[0]); });
+
+    function loadFile(f){
+      const reader = new FileReader();
+      reader.onload = evt => { img.onload = ()=> drawPreview(); img.src = evt.target.result; };
+      reader.readAsDataURL(f);
+    }
+
+    function drawPreview(){
+      const maxW = 400, maxH = 220;
+      let w = img.width, h = img.height;
+      const ratio = Math.min(maxW/w, maxH/h, 1);
+      w = Math.round(w*ratio); h = Math.round(h*ratio);
+      canvas.width = w; canvas.height = h;
+      ctx.clearRect(0,0,w,h);
+      ctx.drawImage(img,0,0,w,h);
+    }
+
+    function convert(){
+      if(!img.src){ alert('Aucune image chargée.'); return; }
+      // parameters
+      const charWidth = parseInt($('width').value,10);
+      const charset = $('charset').value;
+      const invert = $('invert').checked;
+      const useGray = $('grayscale').checked;
+
+      // Calculate target size in pixels to render for sampling
+      // Typical character height/width ratio ~ 2 (chars taller than wide) so adjust
+      const ratio = img.width / img.height;
+      const targetW = charWidth;
+      const targetH = Math.round(charWidth / ratio / 2); // /2 to account for character aspect
+      // render to temporary canvas
+      const tmp = document.createElement('canvas');
+      tmp.width = targetW; tmp.height = targetH;
+      const tctx = tmp.getContext('2d');
+      tctx.drawImage(img,0,0,targetW,targetH);
+      const data = tctx.getImageData(0,0,targetW,targetH).data;
+
+      let out = '';
+      for(let y=0;y<targetH;y++){
+        for(let x=0;x<targetW;x++){
+          const i = (y*targetW + x)*4;
+          let r = data[i], g = data[i+1], b = data[i+2];
+          let lum = 0.2126*r + 0.7152*g + 0.0722*b; // perceptual luminance
+          if(!useGray){ /* keep as luminance (we always use luminance) */ }
+          if(invert) lum = 255 - lum;
+          const t = lum/255;
+          const idx = Math.floor((charset.length-1) * (1 - t)); // darker -> denser char
+          let ch = charset[Math.max(0, Math.min(charset.length-1, idx))];
+          out += ch;
+        }
+        out += '\n';
+      }
+
+      output.value = out;
+      // draw preview at canvas too (small)
+      drawPreview();
+    }
+
+    convertBtn.addEventListener('click', convert);
+
+    downloadBtn.addEventListener('click', ()=>{
+      const text = output.value;
+      if(!text){ alert('Rien à télécharger.'); return; }
+      const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'ascii.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    });
+
+    // small: allow paste an image
+    window.addEventListener('paste', (e)=>{
+      const items = e.clipboardData && e.clipboardData.items;
+      if(!items) return;
+      for(const it of items){ if(it.type.indexOf('image')!==-1){ const f = it.getAsFile(); loadFile(f); break; } }
+    });
+
+  </script>
 </body>
 </html>
